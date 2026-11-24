@@ -28,6 +28,7 @@ func NewParser(r io.Reader) *Parser {
 	return &Parser{reader: bufio.NewReader(r)}
 }
 
+// reads up to the next newline and checks for EOF
 func (p *Parser) readLine() ([]byte, error) {
 
 	line, err := p.reader.ReadBytes('\n')
@@ -45,14 +46,14 @@ func (p *Parser) readLine() ([]byte, error) {
 	return bytes.TrimRight(line, "\r\n"), nil
 }
 
-// Parses by line with readLine()
+// Parses by line with readLine() and checks if EOF is expected (on the header line) or unexpected (on seq, + or qual line)
 func (p *Parser) Read() (Record, error) {
 
 	if p.atEOF {
 		return Record{}, io.EOF
 	}
 
-	// Parse header
+	// Parse header - EOF valid here
 	header, err := p.readLine()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -68,20 +69,25 @@ func (p *Parser) Read() (Record, error) {
 	}
 
 	// Read ID
-	// readId, err := GetReadId(headerStr)
 	readId := strings.TrimPrefix(strings.Split(headerStr, " ")[0], "@")
 
 	// Everything else
 	info := ParseHeaderInfoPlainText(headerStr)
 
-	// Parse sequence
+	// Parse sequence - EOF not valid here
 	seq, err := p.readLine()
+	if err == io.EOF {
+		return Record{}, fmt.Errorf("line %d: %w", p.line+1, io.ErrUnexpectedEOF)
+	}
 	if err != nil {
 		return Record{}, p.malformed(err)
 	}
 
-	// Parse (skip) '+' separater
+	// Parse (skip) '+' separater - EOF not valid here
 	plus, err := p.readLine()
+	if err == io.EOF {
+		return Record{}, fmt.Errorf("line %d: %w", p.line+1, io.ErrUnexpectedEOF)
+	}
 	if err != nil {
 		return Record{}, err
 	}
@@ -90,8 +96,11 @@ func (p *Parser) Read() (Record, error) {
 		return Record{}, fmt.Errorf("line %d: no '+' separator found", p.line)
 	}
 
-	// Parse quality
+	// Parse quality - EOF not valid here
 	qual, err := p.readLine()
+	if err == io.EOF {
+		return Record{}, fmt.Errorf("line %d: %w", p.line+1, io.ErrUnexpectedEOF)
+	}
 	if err != nil {
 		return Record{}, p.malformed(err)
 	}
